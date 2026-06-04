@@ -4,18 +4,55 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import BottomNav from '../../components/BottomNav';
+import { useAuth } from '../../hooks/useAuth';
+import withObservables from '@nozbe/with-observables';
+import { database } from '../../db';
+import { Q } from '@nozbe/watermelondb';
+import TransactionModel from '../../db/models/Transaction';
 
-export default function HomeScreen() {
+function HomeScreen({
+  productsCount = 0,
+  lowStockCount = 0,
+  recentTransactions = [],
+  allTransactions = []
+}: {
+  productsCount?: number;
+  lowStockCount?: number;
+  recentTransactions?: TransactionModel[];
+  allTransactions?: TransactionModel[];
+}) {
   const router = useRouter();
+  const { user } = useAuth();
+
+  const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Guest';
+  const avatarUrl = user?.user_metadata?.avatar_url || 'https://ui-avatars.com/api/?name=' + firstName;
+
+  // Calculate Total Sales
+  const totalSales = allTransactions
+    .filter(tx => tx.type === 'sold')
+    .reduce((sum, tx) => {
+      const match = tx.note?.match(/\$\s*([0-9.]+)/);
+      const price = match ? parseFloat(match[1]) : 0;
+      return sum + (price * tx.quantity);
+    }, 0);
+
+  // Calculate Transactions Today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const transactionsToday = allTransactions.filter(tx => {
+    const txDate = new Date(tx.createdAt);
+    return txDate >= today;
+  }).length;
+
   return (
     <SafeAreaView className="flex-1 bg-[#F8FAFC]">
       <ScrollView className="flex-1 px-5 pt-4" showsVerticalScrollIndicator={false}>
-        
+
         {/* Header */}
         <View className="flex-row justify-between items-center mb-6">
           <View>
             <Text className="text-gray-500 font-inter text-base">Good Morning,</Text>
-            <Text className="text-dark font-poppins text-2xl mt-1">Jamil 👋</Text>
+            <Text className="text-dark font-poppins text-2xl mt-1">{firstName} 👋</Text>
           </View>
           <View className="flex-row items-center">
             <TouchableOpacity className="relative mr-4">
@@ -24,8 +61,8 @@ export default function HomeScreen() {
                 <Text className="text-white text-[10px] font-bold">2</Text>
               </View>
             </TouchableOpacity>
-            <Image 
-              source={{ uri: 'https://i.pravatar.cc/150?img=11' }} 
+            <Image
+              source={{ uri: avatarUrl }}
               className="w-12 h-12 rounded-full"
             />
           </View>
@@ -46,7 +83,7 @@ export default function HomeScreen() {
             <View className="bg-white rounded-2xl p-4 w-[48%] mb-3">
               <Text className="text-gray-500 font-inter text-xs mb-2">Total Products</Text>
               <View className="flex-row justify-between items-end">
-                <Text className="text-dark font-poppins text-xl">1,245</Text>
+                <Text className="text-dark font-poppins text-xl">{productsCount}</Text>
                 <View className="bg-primary/10 p-2 rounded-xl">
                   <Ionicons name="cube-outline" size={20} color="#10B981" />
                 </View>
@@ -57,7 +94,7 @@ export default function HomeScreen() {
             <View className="bg-white rounded-2xl p-4 w-[48%] mb-3">
               <Text className="text-gray-500 font-inter text-xs mb-2">Low Stock</Text>
               <View className="flex-row justify-between items-end">
-                <Text className="text-dark font-poppins text-xl">23</Text>
+                <Text className="text-dark font-poppins text-xl">{lowStockCount}</Text>
                 <View className="bg-warning/10 p-2 rounded-xl">
                   <Ionicons name="warning-outline" size={20} color="#F59E0B" />
                 </View>
@@ -68,7 +105,7 @@ export default function HomeScreen() {
             <View className="bg-white rounded-2xl p-4 w-[48%]">
               <Text className="text-gray-500 font-inter text-xs mb-2">Total Sales</Text>
               <View className="flex-row justify-between items-end">
-                <Text className="text-dark font-poppins text-xl">$25,450</Text>
+                <Text className="text-dark font-poppins text-xl">${totalSales.toFixed(2)}</Text>
                 <View className="bg-purple-100 p-2 rounded-xl">
                   <Ionicons name="trending-up-outline" size={20} color="#9333EA" />
                 </View>
@@ -79,7 +116,7 @@ export default function HomeScreen() {
             <View className="bg-white rounded-2xl p-4 w-[48%]">
               <Text className="text-gray-500 font-inter text-xs mb-2">Transactions Today</Text>
               <View className="flex-row justify-between items-end">
-                <Text className="text-dark font-poppins text-xl">48</Text>
+                <Text className="text-dark font-poppins text-xl">{transactionsToday}</Text>
                 <View className="bg-blue-100 p-2 rounded-xl">
                   <Ionicons name="bag-check-outline" size={20} color="#3B82F6" />
                 </View>
@@ -116,56 +153,42 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Activity Item 1 */}
-          <View className="flex-row justify-between items-center mb-4">
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-primary/10 items-center justify-center mr-3">
-                <Ionicons name="add-circle-outline" size={24} color="#10B981" />
-              </View>
-              <View>
-                <Text className="text-dark font-poppins text-sm">JBL Tune 520BT</Text>
-                <Text className="text-gray-400 font-inter text-xs mt-0.5">Stock Added</Text>
-              </View>
-            </View>
-            <View className="items-end">
-              <Text className="text-dark font-poppins text-base">+10</Text>
-              <Text className="text-gray-400 font-inter text-xs mt-0.5">9:45 AM</Text>
-            </View>
-          </View>
+          {recentTransactions.length === 0 ? (
+            <Text className="text-gray-400 font-inter text-center mt-4">No recent activity.</Text>
+          ) : (
+            recentTransactions.map(tx => {
+              const dateStr = new Date(tx.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const isSale = tx.type === 'sold';
+              const isRemoval = tx.type === 'removed';
 
-          {/* Activity Item 2 */}
-          <View className="flex-row justify-between items-center mb-4">
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-blue-100 items-center justify-center mr-3">
-                <Ionicons name="remove-circle-outline" size={24} color="#3B82F6" />
-              </View>
-              <View>
-                <Text className="text-dark font-poppins text-sm">Dell Monitor 24"</Text>
-                <Text className="text-gray-400 font-inter text-xs mt-0.5">Stock Sold</Text>
-              </View>
-            </View>
-            <View className="items-end">
-              <Text className="text-danger font-poppins text-base">-2</Text>
-              <Text className="text-gray-400 font-inter text-xs mt-0.5">11:20 AM</Text>
-            </View>
-          </View>
+              let iconName: "arrow-down-circle" | "arrow-up-circle" | "alert-circle" = "arrow-up-circle";
+              let iconColor = "#10B981"; // green
+              let typeText = "Stock In";
 
-          {/* Activity Item 3 */}
-          <View className="flex-row justify-between items-center">
-            <View className="flex-row items-center">
-              <View className="w-12 h-12 rounded-xl bg-warning/10 items-center justify-center mr-3">
-                <Ionicons name="arrow-undo-outline" size={24} color="#F59E0B" />
-              </View>
-              <View>
-                <Text className="text-dark font-poppins text-sm">Office Chair Pro</Text>
-                <Text className="text-gray-400 font-inter text-xs mt-0.5">Returned</Text>
-              </View>
-            </View>
-            <View className="items-end">
-              <Text className="text-primary font-poppins text-base">+1</Text>
-              <Text className="text-gray-400 font-inter text-xs mt-0.5">1:10 PM</Text>
-            </View>
-          </View>
+              if (isSale) {
+                iconName = "arrow-down-circle";
+                iconColor = "#3B82F6"; // blue
+                typeText = "Sale";
+              } else if (isRemoval) {
+                iconName = "alert-circle";
+                iconColor = "#EF4444"; // red
+                typeText = "Stock Out";
+              }
+
+              return (
+                <View key={tx.id} className="flex-row justify-between items-center py-3 border-b border-gray-50">
+                  <View className="flex-row items-center">
+                    <Ionicons name={iconName} size={22} color={iconColor} className="mr-3" />
+                    <View className="flex-shrink-1">
+                      <Text className="text-dark font-poppins text-sm">{tx.product_name}</Text>
+                      <Text className="text-gray-400 font-inter text-[10px] mt-0.5">{typeText} • {tx.note || `Qty: ${tx.quantity}`}</Text>
+                    </View>
+                  </View>
+                  <Text className="text-gray-500 font-inter text-xs ml-2">{dateStr}</Text>
+                </View>
+              );
+            })
+          )}
         </View>
 
         {/* Quick Actions */}
@@ -180,9 +203,9 @@ export default function HomeScreen() {
               <Ionicons name="barcode-outline" size={24} color="#0F172A" className="mb-2" />
               <Text className="text-gray-600 font-inter text-[10px] text-center mt-1">Scan Barcode</Text>
             </TouchableOpacity>
-            <TouchableOpacity className="bg-white border border-gray-100 w-[23%] aspect-square rounded-2xl items-center justify-center shadow-sm shadow-gray-200/50">
-              <Ionicons name="swap-horizontal" size={24} color="#0F172A" className="mb-2" />
-              <Text className="text-gray-600 font-inter text-[10px] text-center mt-1">New Transaction</Text>
+            <TouchableOpacity onPress={() => router.push('/product/sell' as any)} className="bg-white border border-gray-100 w-[23%] aspect-square rounded-2xl items-center justify-center shadow-sm shadow-gray-200/50">
+              <Ionicons name="bag-handle-outline" size={24} color="#0F172A" className="mb-2" />
+              <Text className="text-gray-600 font-inter text-[10px] text-center mt-1">Sell</Text>
             </TouchableOpacity>
             <TouchableOpacity className="bg-white border border-gray-100 w-[23%] aspect-square rounded-2xl items-center justify-center shadow-sm shadow-gray-200/50">
               <Ionicons name="document-text-outline" size={24} color="#0F172A" className="mb-2" />
@@ -196,3 +219,12 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
+
+const enhance = withObservables([], () => ({
+  productsCount: database.collections.get('products').query().observeCount(),
+  lowStockCount: database.collections.get('products').query(Q.where('quantity', Q.lte(5))).observeCount(),
+  recentTransactions: database.collections.get<TransactionModel>('transactions').query(Q.sortBy('created_at', Q.desc), Q.take(5)).observe(),
+  allTransactions: database.collections.get<TransactionModel>('transactions').query().observe(),
+}));
+
+export default enhance(HomeScreen);

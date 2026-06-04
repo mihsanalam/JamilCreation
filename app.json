@@ -3,19 +3,28 @@
     "name": "JamilCreation",
     "slug": "JamilCreation",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/images/jamil_creation_logo.png",
     "scheme": "jamilcreation",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/jamil_creation_logo.png"
+      "icon": "./assets/images/jamil_creation_logo.png",
+      "bundleIdentifier": "com.md_mihsan.JamilCreation",
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/jamil_creation_logo.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ],
+      "package": "com.md_mihsan.JamilCreation",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
@@ -35,12 +44,27 @@
           "imageWidth": 200
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/jamil_creation_logo.png",
+          "color": "#10B981",
+          "androidMode": "default",
+          "androidCollapsedTitle": "Jamil Creation"
+        }
+      ],
       "expo-font",
-      "expo-barcode-scanner"
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0a9f093e-11e9-4127-95b1-97a28a80f91c"
+      }
     }
   }
 }
