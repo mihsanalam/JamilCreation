@@ -44,6 +44,6 @@ example
 /android
 .env
 
-# Firebase / FCM — never commit these
-google-services.json
-GoogleService-Info.plist
+# Firebase / FCM config files can be tracked by git for EAS builds
+# google-services.json
+# GoogleService-Info.plist

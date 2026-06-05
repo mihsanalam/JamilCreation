@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/jamil_creation_logo.png",
-      "bundleIdentifier": "com.md_mihsan.JamilCreation",
+      "bundleIdentifier": "com.mdmihsan.JamilCreation",
       "supportsTablet": true
     },
     "android": {

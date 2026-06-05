@@ -71,5 +71,16 @@
     "web": "expo start --web",
     "lint": "expo lint"
   },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "@nozbe/watermelondb",
+          "@nozbe/simdjson",
+          "expo-modules-jsi"
+        ]
+      }
+    }
+  },
   "private": true
 }

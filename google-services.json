@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "883969184165",
+    "project_id": "jamilcreation-b2a15",
+    "storage_bucket": "jamilcreation-b2a15.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:883969184165:android:de12e7d87c2691cac3984c",
+        "android_client_info": {
+          "package_name": "com.md_mihsan.JamilCreation"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjNHyiR3j7C8eJ9knzwXeGzzB3HHh2GJM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
