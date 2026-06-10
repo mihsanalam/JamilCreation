@@ -1,8 +1,8 @@
 import React, { useRef, useEffect } from 'react';
-import { Animated, View, ViewStyle } from 'react-native';
+import { Animated, View, ViewStyle, DimensionValue } from 'react-native';
 
 interface SkeletonProps {
-  width?: number | `${number}%`;
+  width?: DimensionValue;
   height?: number;
   borderRadius?: number;
   style?: ViewStyle;
@@ -26,7 +26,7 @@ export function Skeleton({ width = '100%', height = 16, borderRadius = 8, style 
     <Animated.View
       style={[
         {
-          width: width as any,
+          width,
           height,
           borderRadius,
           backgroundColor: '#E2E8F0',

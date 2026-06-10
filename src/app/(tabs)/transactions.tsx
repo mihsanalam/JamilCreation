@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import BottomNav from '../../components/BottomNav';
 import withObservables from '@nozbe/with-observables';
 import { database } from '../../db';
 import { Q } from '@nozbe/watermelondb';
 import TransactionModel from '../../db/models/Transaction';
+import { router } from 'expo-router';
 
-const TransactionItem = ({ tx }: { tx: TransactionModel }) => {
+const TransactionItem = React.memo(({ tx }: { tx: TransactionModel }) => {
   const dateStr = new Date(tx.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const isSale = tx.type === 'sold';
   const isRemoval = tx.type === 'removed';
@@ -40,9 +40,9 @@ const TransactionItem = ({ tx }: { tx: TransactionModel }) => {
       <Text className="text-gray-500 font-inter text-xs ml-3">{dateStr}</Text>
     </View>
   );
-};
+});
 
-const EnhancedTransactionItem = withObservables(['tx'], ({ tx }) => ({
+const EnhancedTransactionItem = withObservables(['tx'], ({ tx }: { tx: TransactionModel }) => ({
   tx,
 }))(TransactionItem);
 
@@ -84,10 +84,39 @@ function TransactionsScreen({ transactions = [] }: { transactions: TransactionMo
       {/* Transactions List */}
       <ScrollView className="flex-1 px-5 pt-2" showsVerticalScrollIndicator={false}>
         {filteredTransactions.length === 0 ? (
-          <View className="flex-1 items-center justify-center mt-20">
-            <Ionicons name="swap-horizontal-outline" size={48} color="#cbd5e1" className="mb-2" />
-            <Text className="text-gray-400 font-inter">No transactions found.</Text>
-          </View>
+          transactions.length === 0 ? (
+            <View className="items-center justify-center py-16 px-6 bg-white border border-gray-100 rounded-[32px] mt-6 shadow-sm shadow-gray-200/30">
+              <View className="bg-[#3B82F6]/10 w-20 h-20 rounded-full items-center justify-center mb-6">
+                <Ionicons name="swap-horizontal-outline" size={40} color="#3B82F6" />
+              </View>
+              <Text className="text-dark font-poppins text-lg font-bold mb-2 text-center">No Transactions Yet</Text>
+              <Text className="text-gray-400 font-inter text-sm text-center mb-6 leading-5">
+                Every sale, inventory addition, or return will be recorded in this live audit trail.
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/product/sell')}
+                className="bg-primary px-6 py-3.5 rounded-2xl shadow-lg shadow-primary/20"
+              >
+                <Text className="text-white font-poppins text-sm font-semibold">Record Your First Sale</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View className="items-center justify-center py-16 px-6 bg-white border border-gray-100 rounded-[32px] mt-6 shadow-sm shadow-gray-200/30">
+              <View className="bg-gray-100 w-20 h-20 rounded-full items-center justify-center mb-6">
+                <Ionicons name="funnel-outline" size={40} color="#64748B" />
+              </View>
+              <Text className="text-dark font-poppins text-lg font-bold mb-2 text-center">No Matching Transactions</Text>
+              <Text className="text-gray-400 font-inter text-sm text-center mb-6 leading-5">
+                We couldn't find any transaction matching your selected type filter.
+              </Text>
+              <TouchableOpacity
+                onPress={() => setSelectedFilter('All')}
+                className="bg-gray-800 px-6 py-3.5 rounded-2xl shadow-lg shadow-gray-800/20"
+              >
+                <Text className="text-white font-poppins text-sm font-semibold">Show All Logs</Text>
+              </TouchableOpacity>
+            </View>
+          )
         ) : (
           filteredTransactions.map(tx => (
             <EnhancedTransactionItem key={tx.id} tx={tx} />

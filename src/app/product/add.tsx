@@ -5,15 +5,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { decode } from 'base64-arraybuffer';
 
 import { database } from '../../db';
 import Product from '../../db/models/Product';
 import Transaction from '../../db/models/Transaction';
+import { supabase } from '../../services/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import BarcodeScannerModal from '../../components/BarcodeScannerModal';
 
 export default function AddProductScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, barcode: queryBarcode } = useLocalSearchParams<{ id?: string; barcode?: string }>();
+  const { user } = useAuth();
+  const businessName = user?.user_metadata?.business_name;
+
   const [imageUri, setImageUri] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -25,6 +33,14 @@ export default function AddProductScreen() {
   const [supplier, setSupplier] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+
+  // Set barcode if prefilled from routing query parameters
+  useEffect(() => {
+    if (queryBarcode) {
+      setBarcode(queryBarcode);
+    }
+  }, [queryBarcode]);
 
   useEffect(() => {
     if (id) {
@@ -63,9 +79,10 @@ export default function AddProductScreen() {
       const compressed = await ImageManipulator.manipulateAsync(
         result.assets[0].uri,
         [{ resize: { width: 1200 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       setImageUri(compressed.uri);
+      setImageBase64(compressed.base64 || null);
     }
   };
 
@@ -82,11 +99,57 @@ export default function AddProductScreen() {
 
     try {
       setIsSaving(true);
+
+      let finalImageUrl = imageUri;
+
+      if (imageUri && imageBase64 && (imageUri.startsWith('file://') || imageUri.startsWith('content://') || !imageUri.startsWith('http'))) {
+        const ext = 'jpeg';
+        const fileName = `product-${Date.now()}.${ext}`;
+        const fileBody = decode(imageBase64);
+
+        // Upload to 'products' bucket
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('products')
+          .upload(fileName, fileBody, {
+            contentType: `image/${ext}`,
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.warn('Product Image Upload to products bucket failed, attempting avatars fallback:', uploadError);
+
+          // Try avatars bucket as fallback
+          const { data: fallbackData, error: fallbackError } = await supabase.storage
+            .from('avatars')
+            .upload(fileName, fileBody, {
+              contentType: `image/${ext}`,
+              upsert: true
+            });
+
+          if (fallbackError) {
+            throw new Error(
+              'Failed to upload image. Please ensure you have created a public storage bucket named "products" in your Supabase dashboard.\n\nError details: ' +
+              fallbackError.message
+            );
+          } else {
+            const { data: publicUrlData } = supabase.storage
+              .from('avatars')
+              .getPublicUrl(fileName);
+            finalImageUrl = publicUrlData.publicUrl;
+          }
+        } else {
+          const { data: publicUrlData } = supabase.storage
+            .from('products')
+            .getPublicUrl(fileName);
+          finalImageUrl = publicUrlData.publicUrl;
+        }
+      }
+
       await database.write(async () => {
         if (id) {
           // Edit Mode
           const productRecord = await database.get<Product>('products').find(id);
-          await productRecord.update((product: any) => {
+          await productRecord.update((product: Product) => {
             product.name = name;
             product.sku = sku;
             product.barcode = barcode || undefined;
@@ -95,22 +158,25 @@ export default function AddProductScreen() {
             product.buying_price = parseFloat(buyingPrice);
             product.selling_price = parseFloat(sellingPrice);
             product.supplier = supplier || undefined;
-            product.image_url = imageUri || undefined;
+            product.image_url = finalImageUrl || undefined;
+            if (businessName) {
+              product.business_name = businessName;
+            }
           });
 
           // Log transaction for edit
-          await database.get<Transaction>('transactions').create((tx: any) => {
+          await database.get<Transaction>('transactions').create((tx: Transaction) => {
             tx.product_id = id;
             tx.product_name = name;
             tx.type = 'added'; // updated details log
             tx.quantity = 0;
             tx.note = `Product details updated`;
-            tx.by_user = 'Admin';
-            tx.created_at = Date.now();
+            tx.by_user = user?.email || user?.user_metadata?.full_name || 'Admin';
+            tx.business_name = businessName || undefined;
           });
         } else {
           // Create Mode
-          const newProduct = await database.get<Product>('products').create((product: any) => {
+          const newProduct = await database.get<Product>('products').create((product: Product) => {
             product.name = name;
             product.sku = sku || `PRD-${Date.now().toString().slice(-4)}`;
             product.barcode = barcode || undefined;
@@ -119,28 +185,29 @@ export default function AddProductScreen() {
             product.buying_price = parseFloat(buyingPrice);
             product.selling_price = parseFloat(sellingPrice);
             product.supplier = supplier || undefined;
-            product.image_url = imageUri || undefined;
+            product.image_url = finalImageUrl || undefined;
             product.low_stock_threshold = 5; // Default value
-            product.created_at = Date.now();
+            product.business_name = businessName || undefined;
           });
 
           // Log transaction for initial stock
-          await database.get<Transaction>('transactions').create((tx: any) => {
+          await database.get<Transaction>('transactions').create((tx: Transaction) => {
             tx.product_id = newProduct.id;
             tx.product_name = name;
             tx.type = 'added';
             tx.quantity = parseInt(quantity, 10);
             tx.note = `Initial stock added (Price: $${parseFloat(buyingPrice).toFixed(2)})`;
-            tx.by_user = 'Admin';
-            tx.created_at = Date.now();
+            tx.by_user = user?.email || user?.user_metadata?.full_name || 'Admin';
+            tx.business_name = businessName || undefined;
           });
         }
       });
 
       alert(id ? 'Product updated successfully!' : 'Product saved successfully to local database!');
       router.back();
-    } catch (error: any) {
-      alert('Error saving product: ' + error.message);
+    } catch (error) {
+      const err = error as Error;
+      alert('Error saving product: ' + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -157,10 +224,10 @@ export default function AddProductScreen() {
       </View>
 
       <ScrollView className="flex-1 px-5 pt-5" showsVerticalScrollIndicator={false}>
-        
+
         {/* Product Image */}
         <Text className="text-dark font-inter text-sm mb-3">Product Image</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={pickImage}
           className="border-2 border-dashed border-gray-300 rounded-3xl h-32 w-48 self-center items-center justify-center bg-gray-50 mb-6 overflow-hidden"
         >
@@ -178,7 +245,7 @@ export default function AddProductScreen() {
         <View className="mb-4">
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2">
             <Text className="text-dark font-poppins text-xs mb-1">Product Name</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="Enter product name"
               placeholderTextColor="#9ca3af"
@@ -192,7 +259,7 @@ export default function AddProductScreen() {
         <View className="flex-row mb-4">
           <View className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 mr-3">
             <Text className="text-dark font-poppins text-xs mb-1">SKU</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="Auto-generate"
               placeholderTextColor="#9ca3af"
@@ -209,7 +276,7 @@ export default function AddProductScreen() {
         <View className="flex-row mb-4">
           <View className="flex-1 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 mr-3">
             <Text className="text-dark font-poppins text-xs mb-1">Barcode</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="Scan barcode"
               placeholderTextColor="#9ca3af"
@@ -217,7 +284,10 @@ export default function AddProductScreen() {
               onChangeText={setBarcode}
             />
           </View>
-          <TouchableOpacity className="bg-gray-200 w-14 rounded-2xl items-center justify-center">
+          <TouchableOpacity
+            onPress={() => setShowScanner(true)}
+            className="bg-gray-200 w-14 rounded-2xl items-center justify-center"
+          >
             <Ionicons name="barcode-outline" size={20} color="#475569" />
           </TouchableOpacity>
         </View>
@@ -226,7 +296,7 @@ export default function AddProductScreen() {
         <View className="mb-4">
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2">
             <Text className="text-dark font-poppins text-xs mb-1">Category</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="e.g. Electronics, Clothing"
               placeholderTextColor="#9ca3af"
@@ -240,7 +310,7 @@ export default function AddProductScreen() {
         <View className="mb-4">
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 min-h-[100px]">
             <Text className="text-dark font-poppins text-xs mb-1">Description</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="Enter description"
               placeholderTextColor="#9ca3af"
@@ -256,7 +326,7 @@ export default function AddProductScreen() {
         <View className="flex-row justify-between mb-4">
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 w-[30%]">
             <Text className="text-dark font-poppins text-xs mb-1">Quantity</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="0"
               placeholderTextColor="#9ca3af"
@@ -267,7 +337,7 @@ export default function AddProductScreen() {
           </View>
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 w-[32%]">
             <Text className="text-dark font-poppins text-xs mb-1">Buying Price</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="$ 0.00"
               placeholderTextColor="#9ca3af"
@@ -278,7 +348,7 @@ export default function AddProductScreen() {
           </View>
           <View className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-2 w-[32%]">
             <Text className="text-dark font-poppins text-xs mb-1">Selling Price</Text>
-            <TextInput 
+            <TextInput
               className="font-inter text-dark text-sm p-0"
               placeholder="$ 0.00"
               placeholderTextColor="#9ca3af"
@@ -291,7 +361,7 @@ export default function AddProductScreen() {
 
         {/* Supplier */}
         <View className="mb-8">
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setShowSupplierModal(true)}
             className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 flex-row justify-between items-center"
           >
@@ -306,7 +376,7 @@ export default function AddProductScreen() {
         </View>
 
         {/* Save Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={handleSaveProduct}
           disabled={isSaving}
           className="bg-[#10B981] rounded-2xl py-4 items-center mb-10 shadow-lg shadow-[#10B981]/30"
@@ -325,16 +395,19 @@ export default function AddProductScreen() {
         animationType="slide"
         onRequestClose={() => setShowSupplierModal(false)}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           className="flex-1 bg-black/50 justify-end"
           activeOpacity={1}
           onPress={() => setShowSupplierModal(false)}
         >
-          <View className="bg-white rounded-t-3xl min-h-[50%] max-h-[80%] p-5">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-dark font-poppins text-lg">Select Supplier</Text>
-              <TouchableOpacity onPress={() => setShowSupplierModal(false)}>
-                <Ionicons name="close" size={24} color="#0F172A" />
+          <View className="bg-white rounded-t-[36px] min-h-[50%] max-h-[80%] p-6">
+            {/* Drag handle */}
+            <View className="w-12 h-1.5 bg-gray-200 rounded-full self-center mb-4" />
+
+            <View className="flex-row justify-between items-center mb-5">
+              <Text className="text-dark font-poppins text-lg font-bold">Select Supplier</Text>
+              <TouchableOpacity onPress={() => setShowSupplierModal(false)} className="w-8 h-8 items-center justify-center bg-gray-100 rounded-full">
+                <Ionicons name="close" size={18} color="#0F172A" />
               </TouchableOpacity>
             </View>
             <FlatList
@@ -357,6 +430,15 @@ export default function AddProductScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={(scannedBarcode) => {
+          setBarcode(scannedBarcode);
+        }}
+      />
     </SafeAreaView>
   );
 }

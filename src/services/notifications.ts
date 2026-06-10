@@ -29,7 +29,7 @@ Notifications.setNotificationHandler({
 // Register device and store push token in Supabase
 // Call this once on login / app start (when user session is available)
 // ─────────────────────────────────────────────────────────────────────────────
-export async function registerForPushNotifications(userId: string): Promise<string | null> {
+export async function registerForPushNotifications(userId: string, businessName?: string): Promise<string | null> {
   if (!Device.isDevice) {
     console.warn('Push notifications only work on physical devices.');
     return null;
@@ -70,11 +70,16 @@ export async function registerForPushNotifications(userId: string): Promise<stri
   const token = tokenData;
 
   // Save token to Supabase (upsert by user_id)
-  // You need to create a `push_tokens` table in Supabase — SQL at the bottom of this file
+  // Include business_name so push notifications can be scoped to the correct business
   const { error } = await supabase
     .from('push_tokens')
     .upsert(
-      { user_id: userId, token, updated_at: new Date().toISOString() },
+      {
+        user_id: userId,
+        token,
+        business_name: businessName || null,
+        updated_at: new Date().toISOString(),
+      },
       { onConflict: 'user_id' }
     );
 

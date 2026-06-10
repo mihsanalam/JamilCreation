@@ -3,6 +3,13 @@ import { database } from './index';
 import { supabase } from '../services/supabase';
 
 export async function sync() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const businessName = session?.user?.user_metadata?.business_name;
+  if (!businessName) {
+    console.warn("No business name found in session, skipping sync.");
+    return;
+  }
+
   await synchronize({
     database,
     pullChanges: async ({ lastPulledAt, schemaVersion, migration }) => {
@@ -13,25 +20,27 @@ export async function sync() {
         : new Date(0).toISOString();
 
       try {
-        // Fetch updated/new products from Supabase
+        // Fetch updated/new products from Supabase for this business
         const { data: productsData, error: productsError } = await supabase
           .from('products')
           .select('*')
+          .eq('business_name', businessName)
           .gt('updated_at', timestamp);
 
         if (productsError) throw productsError;
 
-        // Fetch updated/new transactions from Supabase
+        // Fetch updated/new transactions from Supabase for this business
         const { data: txData, error: txError } = await supabase
           .from('transactions')
           .select('*')
+          .eq('business_name', businessName)
           .gt('updated_at', timestamp);
 
         if (txError) throw txError;
 
         // Helper to convert ISO strings from Supabase back to Unix timestamps for local SQLite
-        const formatForLocal = (data: any[]) => {
-          return (data || []).map((item: any) => {
+        const formatForLocal = (data: Record<string, any>[] | null) => {
+          return (data || []).map((item) => {
             const copy = { ...item };
             if (copy.created_at) {
               copy.created_at = new Date(copy.created_at).getTime();
@@ -66,7 +75,7 @@ export async function sync() {
     pushChanges: async ({ changes, lastPulledAt }) => {
       try {
         // --- SYNC PRODUCTS ---
-        const productChanges = (changes as any).products;
+        const productChanges = (changes as Record<string, any>).products;
         if (productChanges) {
           const { created, updated, deleted } = productChanges;
           
@@ -74,12 +83,15 @@ export async function sync() {
           if (created.length > 0) {
             // Strip out WatermelonDB internal fields like _status, _changed
             // Convert Unix millisecond timestamp to ISO string for Supabase timestamptz
-            const safeCreated = created.map((r: any) => {
-              const copy = { ...r };
+            const safeCreated = created.map((r: Record<string, any>) => {
+              const copy = { ...r } as Record<string, any>;
               delete copy._status;
               delete copy._changed;
               if (copy.created_at) {
                 copy.created_at = new Date(copy.created_at).toISOString();
+              }
+              if (!copy.business_name) {
+                copy.business_name = businessName;
               }
               return copy;
             });
@@ -90,11 +102,14 @@ export async function sync() {
           // 2. Push Updated Records
           if (updated.length > 0) {
             for (const record of updated) {
-              const safeRecord = { ...record };
+              const safeRecord = { ...record } as Record<string, any>;
               delete safeRecord._status;
               delete safeRecord._changed;
               if (safeRecord.created_at) {
                 safeRecord.created_at = new Date(safeRecord.created_at).toISOString();
+              }
+              if (!safeRecord.business_name) {
+                safeRecord.business_name = businessName;
               }
               const { error } = await supabase.from('products').update(safeRecord).eq('id', record.id);
               if (error) throw error;
@@ -109,17 +124,20 @@ export async function sync() {
         }
 
         // --- SYNC TRANSACTIONS ---
-        const transactionChanges = (changes as any).transactions;
+        const transactionChanges = (changes as Record<string, any>).transactions;
         if (transactionChanges) {
           const { created, updated, deleted } = transactionChanges;
           
           if (created.length > 0) {
-            const safeCreated = created.map((r: any) => {
-              const copy = { ...r };
+            const safeCreated = created.map((r: Record<string, any>) => {
+              const copy = { ...r } as Record<string, any>;
               delete copy._status;
               delete copy._changed;
               if (copy.created_at) {
                 copy.created_at = new Date(copy.created_at).toISOString();
+              }
+              if (!copy.business_name) {
+                copy.business_name = businessName;
               }
               return copy;
             });
@@ -134,6 +152,9 @@ export async function sync() {
               delete safeRecord._changed;
               if (safeRecord.created_at) {
                 safeRecord.created_at = new Date(safeRecord.created_at).toISOString();
+              }
+              if (!safeRecord.business_name) {
+                safeRecord.business_name = businessName;
               }
               const { error } = await supabase.from('transactions').update(safeRecord).eq('id', record.id);
               if (error) throw error;

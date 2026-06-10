@@ -47,3 +47,10 @@ example
 # Firebase / FCM config files can be tracked by git for EAS builds
 # google-services.json
 # GoogleService-Info.plist
+
+# credentials & service accounts
+*service-account*.json
+*serviceAccount*.json
+credentials*.json
+*.keystore
+*.jks

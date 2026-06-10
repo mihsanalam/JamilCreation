@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb'
 
 export default appSchema({
-  version: 1,
+  version: 2,
   tables: [
     tableSchema({
       name: 'products',
@@ -19,6 +19,7 @@ export default appSchema({
         { name: 'image_url',     type: 'string', isOptional: true },
         { name: 'low_stock_threshold', type: 'number' },
         { name: 'server_id',     type: 'string', isOptional: true },
+        { name: 'business_name', type: 'string', isOptional: true },
         { name: 'created_at',    type: 'number' },
       ]
     }),
@@ -32,6 +33,7 @@ export default appSchema({
         { name: 'note',         type: 'string', isOptional: true },
         { name: 'by_user',      type: 'string' },
         { name: 'server_id',    type: 'string', isOptional: true },
+        { name: 'business_name', type: 'string', isOptional: true },
         { name: 'created_at',   type: 'number' },
       ]
     }),

@@ -281,12 +281,40 @@ Supabase (PostgreSQL)
 
 ## 🗺 Roadmap
 
-- [ ] Barcode scanner integration (Scan & Sell)
+- [x] Barcode scanner integration (Scan & Sell)
 - [x] Push notifications for low-stock alerts
-- [ ] Multi-user role permissions (Admin / Staff)
-- [ ] CSV/PDF export for reports
+- [x] Multi-user role permissions (Owner / Staff)
+- [x] CSV export for reports (Inventory & Transactions)
 - [x] Image compression before upload
 - [x] Loading skeletons on all screens
+- [x] Unit test suites with Jest (calculateProfit, lowStockCheck, Zustand store)
+
+---
+
+## 🧪 Testing & CI/CD
+
+The codebase includes a comprehensive test suite built with **Jest** and **ts-jest** to verify inventory calculations and state management.
+
+### Running the Tests
+
+To run the unit tests, execute the following command in the project root:
+
+```bash
+npm test
+```
+
+### Test Coverage
+
+The test suite covers:
+- **Inventory Utilities (`src/utils/inventory.ts`)**: 23 assertions verifying profit, revenue, cost calculations, low stock checks, over stock conditions, and date-based transaction filters.
+- **Zustand Cart & Search Store (`src/store/inventoryStore.ts`)**: 11 assertions verifying cart operations (adding, updating quantities, duplicate item accumulation, clearing), cart profit/revenue totals, and state-based inventory category/search filters.
+
+### 🤖 CI/CD Pipeline
+
+We have configured a **GitHub Actions CI Pipeline** (under `.github/workflows/node.js.yml`) to automate code quality checks:
+- **Triggers**: Executed automatically on every `push` or `pull_request` to `main` or `master` branches.
+- **Node Versions**: Evaluates and runs builds across Node `18.x` and `20.x` containers.
+- **Verification**: Automatically runs the Jest unit test suite. Passing tests are required before code merges.
 
 ---
 

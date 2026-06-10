@@ -17,6 +17,7 @@ export default class Product extends Model {
   @field('image_url') image_url?: string
   @field('low_stock_threshold') low_stock_threshold: number
   @field('server_id') server_id?: string
+  @field('business_name') business_name?: string
   
   @readonly @date('created_at') createdAt: Date
 }

@@ -11,16 +11,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
 import { database } from '../../db';
 import ProductModel from '../../db/models/Product';
 import TransactionModel from '../../db/models/Transaction';
 import { useAuth } from '../../hooks/useAuth';
 import { notifyLowStock, notifySaleRecorded } from '../../services/notifications';
+import BarcodeScannerModal from '../../components/BarcodeScannerModal';
 
 export default function RecordSaleScreen() {
   const router = useRouter();
+  const { barcode: queryBarcode } = useLocalSearchParams<{ barcode?: string }>();
   const { user } = useAuth();
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -28,6 +30,7 @@ export default function RecordSaleScreen() {
   const [search, setSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<ProductModel | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   const [qty, setQty] = useState('1');
   const [note, setNote] = useState('');
@@ -38,9 +41,24 @@ export default function RecordSaleScreen() {
     const load = async () => {
       const all = await database.collections.get<ProductModel>('products').query().fetch();
       setProducts(all);
+
+      // If a barcode was passed in routing query parameters, select it automatically
+      if (queryBarcode) {
+        const matched = all.find(
+          p => p.barcode && p.barcode.trim() === queryBarcode.trim()
+        );
+        if (matched) {
+          setSelectedProduct(matched);
+        } else {
+          Alert.alert(
+            'Product Not Found',
+            `No product is registered with barcode "${queryBarcode}".`
+          );
+        }
+      }
     };
     load();
-  }, []);
+  }, [queryBarcode]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const filteredProducts = products.filter(p =>
@@ -76,19 +94,22 @@ export default function RecordSaleScreen() {
 
       await database.write(async () => {
         // 1. Decrement product stock
-        await selectedProduct.update((p: any) => {
+        await selectedProduct.update((p: ProductModel) => {
           p.quantity = remainingQty;
+          if (!p.business_name && user?.user_metadata?.business_name) {
+            p.business_name = user.user_metadata.business_name;
+          }
         });
 
         // 2. Create a 'sold' transaction
-        await database.collections.get<TransactionModel>('transactions').create((tx: any) => {
+        await database.collections.get<TransactionModel>('transactions').create((tx: TransactionModel) => {
           tx.product_id = selectedProduct.id;
           tx.product_name = selectedProduct.name;
           tx.type = 'sold';
           tx.quantity = parsedQty;
           tx.note = note.trim() || `Sale @ ৳${selectedProduct.selling_price.toFixed(2)}/unit`;
           tx.by_user = user?.email || user?.user_metadata?.full_name || 'Admin';
-          tx.created_at = Date.now();
+          tx.business_name = user?.user_metadata?.business_name || undefined;
         });
       });
 
@@ -103,8 +124,9 @@ export default function RecordSaleScreen() {
         `${parsedQty} × ${selectedProduct.name}\nRevenue: ৳${revenue.toFixed(2)} | Profit: ৳${profit.toFixed(2)}`,
         [{ text: 'Done', onPress: () => router.back() }]
       );
-    } catch (err: any) {
-      Alert.alert('Error', err.message);
+    } catch (err) {
+      const error = err as Error;
+      Alert.alert('Error', error.message);
     } finally {
       setIsSaving(false);
     }
@@ -137,26 +159,35 @@ export default function RecordSaleScreen() {
 
             {/* ── Product Picker ───────────────────────────────────────── */}
             <Text className="text-dark font-inter text-sm mb-2">Product *</Text>
-            <TouchableOpacity
-              onPress={() => setShowProductPicker(true)}
-              className="bg-white border border-gray-200 rounded-2xl px-4 py-4 flex-row justify-between items-center mb-5 shadow-sm shadow-gray-200/40"
-            >
-              <View className="flex-1 mr-2">
-                {selectedProduct ? (
-                  <>
-                    <Text className="text-dark font-poppins text-base" numberOfLines={1}>
-                      {selectedProduct.name}
-                    </Text>
-                    <Text className="text-gray-400 font-inter text-xs mt-0.5">
-                      SKU: {selectedProduct.sku} · Stock: {selectedProduct.quantity} units
-                    </Text>
-                  </>
-                ) : (
-                  <Text className="text-gray-400 font-inter text-base">Tap to choose a product…</Text>
-                )}
-              </View>
-              <Ionicons name="chevron-down" size={20} color="#64748b" />
-            </TouchableOpacity>
+            <View className="flex-row items-center mb-5">
+              <TouchableOpacity
+                onPress={() => setShowProductPicker(true)}
+                className="flex-1 bg-white border border-gray-200 rounded-2xl px-4 py-4 flex-row justify-between items-center shadow-sm shadow-gray-200/40 mr-3"
+              >
+                <View className="flex-1 mr-2">
+                  {selectedProduct ? (
+                    <>
+                      <Text className="text-dark font-poppins text-base" numberOfLines={1}>
+                        {selectedProduct.name}
+                      </Text>
+                      <Text className="text-gray-400 font-inter text-xs mt-0.5">
+                        SKU: {selectedProduct.sku} · Stock: {selectedProduct.quantity} units
+                      </Text>
+                    </>
+                  ) : (
+                    <Text className="text-gray-400 font-inter text-base">Tap to choose a product…</Text>
+                  )}
+                </View>
+                <Ionicons name="chevron-down" size={20} color="#64748b" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setShowScanner(true)}
+                className="bg-white border border-gray-200 rounded-2xl w-14 h-14 items-center justify-center shadow-sm shadow-gray-200/40"
+              >
+                <Ionicons name="barcode-outline" size={24} color="#0F172A" />
+              </TouchableOpacity>
+            </View>
 
             {/* ── Quantity ─────────────────────────────────────────────── */}
             <Text className="text-dark font-inter text-sm mb-2">Quantity Sold *</Text>
@@ -239,11 +270,10 @@ export default function RecordSaleScreen() {
             <TouchableOpacity
               onPress={handleSell}
               disabled={isSaving || !selectedProduct || parsedQty <= 0 || isOverStock}
-              className={`rounded-2xl py-4 items-center mb-10 shadow-lg ${
-                isSaving || !selectedProduct || parsedQty <= 0 || isOverStock
+              className={`rounded-2xl py-4 items-center mb-10 shadow-lg ${isSaving || !selectedProduct || parsedQty <= 0 || isOverStock
                   ? 'bg-gray-300 shadow-gray-300/30'
                   : 'bg-[#10B981] shadow-[#10B981]/30'
-              }`}
+                }`}
             >
               {isSaving ? (
                 <ActivityIndicator color="white" />
@@ -267,12 +297,15 @@ export default function RecordSaleScreen() {
           activeOpacity={1}
           onPress={() => setShowProductPicker(false)}
         >
-          <View className="bg-white rounded-t-3xl max-h-[80%] p-5">
+          <View className="bg-white rounded-t-[36px] max-h-[80%] p-6">
+            {/* Drag handle */}
+            <View className="w-12 h-1.5 bg-gray-200 rounded-full self-center mb-4" />
+
             {/* Modal header */}
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-dark font-poppins text-lg">Select Product</Text>
-              <TouchableOpacity onPress={() => setShowProductPicker(false)}>
-                <Ionicons name="close" size={24} color="#0F172A" />
+            <View className="flex-row justify-between items-center mb-5">
+              <Text className="text-dark font-poppins text-lg font-bold">Select Product</Text>
+              <TouchableOpacity onPress={() => setShowProductPicker(false)} className="w-8 h-8 items-center justify-center bg-gray-100 rounded-full">
+                <Ionicons name="close" size={18} color="#0F172A" />
               </TouchableOpacity>
             </View>
 
@@ -333,6 +366,25 @@ export default function RecordSaleScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={(scannedBarcode) => {
+          const matched = products.find(
+            p => p.barcode && p.barcode.trim() === scannedBarcode.trim()
+          );
+          if (matched) {
+            setSelectedProduct(matched);
+          } else {
+            Alert.alert(
+              'Product Not Found',
+              `No product is registered with barcode "${scannedBarcode}".`
+            );
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }

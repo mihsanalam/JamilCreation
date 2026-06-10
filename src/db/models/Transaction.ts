@@ -12,6 +12,7 @@ export default class Transaction extends Model {
   @field('note') note?: string
   @field('by_user') by_user: string
   @field('server_id') server_id?: string
+  @field('business_name') business_name?: string
   
   @readonly @date('created_at') createdAt: Date
 

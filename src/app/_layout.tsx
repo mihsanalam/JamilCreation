@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { sync } from '../db/sync';
 import { registerForPushNotifications } from '../services/notifications';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Keep splash visible until fonts AND auth are ready
 SplashScreen.preventAutoHideAsync();
@@ -24,16 +25,15 @@ export default function RootLayout() {
   const { session, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
-  const notificationListener = useRef<any>(null);
-  const responseListener = useRef<any>(null);
+  const notificationListener = useRef<Notifications.Subscription | null>(null);
+  const responseListener = useRef<Notifications.Subscription | null>(null);
 
-  // ── Hide splash as soon as fonts are loaded (don't wait for auth) ─────────
-  // Auth redirect happens in the next effect; user sees the splash, not a white screen.
+  // ── Hide splash when fonts are loaded AND auth is ready ───────────────────
   useEffect(() => {
-    if (fontsLoaded) {
+    if (fontsLoaded && !loading) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded]);
+  }, [fontsLoaded, loading]);
 
   // ── Auth-based navigation ─────────────────────────────────────────────────
   useEffect(() => {
@@ -64,8 +64,9 @@ export default function RootLayout() {
       }
     });
 
-    // Register push token when user is logged in
-    registerForPushNotifications(session.user.id);
+    // Register push token with business_name for business-scoped notifications
+    const userBusinessName = session.user.user_metadata?.business_name;
+    registerForPushNotifications(session.user.id, userBusinessName);
 
     // Listen for notifications received while app is open
     notificationListener.current = Notifications.addNotificationReceivedListener(_notification => {
@@ -92,22 +93,24 @@ export default function RootLayout() {
     };
   }, [session, loading]);
 
-  // ── Don't render the navigator until fonts are ready ─────────────────────
-  // This avoids the "blank/white" flash before fonts load — the native splash
+  // ── Don't render the navigator until fonts are ready AND auth is resolved ──
+  // This avoids the "blank/white" flash before fonts/auth load — the native splash
   // screen stays visible in this gap because we called preventAutoHideAsync().
-  if (!fontsLoaded) {
+  if (!fontsLoaded || loading) {
     return null; // Splash screen stays shown
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="product/add" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="product/sell" options={{ presentation: 'modal' }} />
-      </Stack>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="product/add" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="product/sell" options={{ presentation: 'modal' }} />
+        </Stack>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

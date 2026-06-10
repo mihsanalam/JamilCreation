@@ -53,6 +53,7 @@ export default function SignupScreen() {
             full_name: fullName,
             business_name: businessName,
             phone: phone,
+            role: 'owner',
           }
         }
       });

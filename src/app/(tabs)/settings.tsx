@@ -18,7 +18,7 @@ import {
   FileText,
   ChevronRight
 } from 'lucide-react-native';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import BottomNav from '../../components/BottomNav';
@@ -28,12 +28,28 @@ import { Modal, TextInput, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { decode } from 'base64-arraybuffer';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { database } from '../../db';
+import { sync } from '../../db/sync';
+import { useRole } from '../../hooks/useRole';
 
 export default function SettingsScreen() {
-  const router = useRouter();
   const { user } = useAuth();
+  const { isOwner, role } = useRole();
   
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      await sync();
+      Alert.alert('Backup & Sync', 'Database synchronization completed successfully!');
+    } catch (error: any) {
+      Alert.alert('Backup & Sync Error', error.message || 'Synchronization failed.');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -45,8 +61,19 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await supabase.auth.signOut();
-            // useAuth listener + _layout.tsx will auto-redirect to login
+            try {
+              await supabase.auth.signOut();
+            } catch (e) {
+              console.warn("Auth sign out error", e);
+            } finally {
+              try {
+                await database.write(async () => {
+                  await database.unsafeResetDatabase();
+                });
+              } catch (dbErr) {
+                console.error("Failed to reset database on logout:", dbErr);
+              }
+            }
           },
         },
       ]
@@ -203,6 +230,11 @@ export default function SettingsScreen() {
             <Text className="text-dark font-poppins text-lg">{fullName}</Text>
             <Text className="text-gray-500 font-inter text-xs mt-0.5">{businessName}</Text>
             <Text className="text-gray-400 font-inter text-xs mt-0.5">{email}</Text>
+            <View className={`mt-1.5 px-2.5 py-0.5 rounded-md self-start ${isOwner ? 'bg-purple-50' : 'bg-blue-50'}`}>
+              <Text className={`font-inter text-[10px] font-bold ${isOwner ? 'text-purple-600' : 'text-blue-600'}`}>
+                {isOwner ? '👑 Owner' : '👤 Staff'}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -210,33 +242,41 @@ export default function SettingsScreen() {
         <View className="mb-6">
           <Text className="text-dark font-poppins text-sm mb-3">Business Settings</Text>
           <View className="bg-white border border-gray-100 rounded-3xl px-4 py-1 shadow-sm shadow-gray-200/50">
-            {renderSettingItem(<User size={20} color="#64748b" />, "Business Profile")}
-            {renderSettingItem(<Sliders size={20} color="#64748b" />, "Preferences")}
+            {renderSettingItem(<User size={20} color="#64748b" />, "Business Profile", undefined, () => Alert.alert("Business Profile", `Business: ${businessName}\nOwner: ${fullName}`))}
+            {renderSettingItem(<Sliders size={20} color="#64748b" />, "Preferences", undefined, () => Alert.alert("Preferences", "Preferences settings are currently configured to default system standards."))}
             {renderSettingItem(
               <DollarSign size={20} color="#64748b" />, 
               "Currency", 
-              <Text className="text-gray-500 font-inter text-xs">USD ($)</Text>
+              <Text className="text-gray-500 font-inter text-xs">BDT (৳)</Text>,
+              () => Alert.alert("Currency", "Primary currency is set to BDT (৳) for all inventory sales and reports.")
             )}
           </View>
         </View>
 
-        {/* Account & Security */}
+        {/* Account & Security — Owner Only */}
+        {isOwner && (
         <View className="mb-6">
           <Text className="text-dark font-poppins text-sm mb-3">Account & Security</Text>
           <View className="bg-white border border-gray-100 rounded-3xl px-4 py-1 shadow-sm shadow-gray-200/50">
-            {renderSettingItem(<Lock size={20} color="#64748b" />, "Change Password")}
+            {renderSettingItem(<Lock size={20} color="#64748b" />, "Change Password", undefined, () => Alert.alert("Change Password", "Password changes can be completed securely from your profile dashboard link.") )}
             {renderSettingItem(<ShieldCheck size={20} color="#64748b" />, "Two-Factor Authentication", undefined, startMfaEnrollment)}
-            {renderSettingItem(<Smartphone size={20} color="#64748b" />, "Device Management")}
+            {renderSettingItem(<Smartphone size={20} color="#64748b" />, "Device Management", undefined, () => Alert.alert("Device Management", `Active Device ID: ${user?.id || 'Unknown'}`)) }
           </View>
         </View>
+        )}
 
         {/* App Settings */}
         <View className="mb-8">
           <Text className="text-dark font-poppins text-sm mb-3">App Settings</Text>
           <View className="bg-white border border-gray-100 rounded-3xl px-4 py-1 shadow-sm shadow-gray-200/50">
-            {renderSettingItem(<Bell size={20} color="#64748b" />, "Notifications")}
-            {renderSettingItem(<RefreshCw size={20} color="#64748b" />, "Backup & Sync")}
-            {renderSettingItem(<FileText size={20} color="#64748b" />, "Data Export")}
+            {renderSettingItem(<Bell size={20} color="#64748b" />, "Notifications", undefined, () => Alert.alert("Notifications", "Push notifications are active. Low-stock limits and sales operations will trigger device alerts automatically."))}
+            {isOwner && renderSettingItem(
+              <RefreshCw size={20} color="#64748b" />, 
+              "Backup & Sync", 
+              syncing ? <ActivityIndicator size="small" color="#10B981" /> : <Text className="text-gray-500 font-inter text-xs">Ready</Text>, 
+              handleSync
+            )}
+            {isOwner && renderSettingItem(<FileText size={20} color="#64748b" />, "Data Export", undefined, () => router.push('/reports'))}
           </View>
         </View>
 

@@ -1,14 +1,19 @@
 import React, { useMemo } from 'react';
-import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TrendingUp, TrendingDown, ShoppingCart, Package } from 'lucide-react-native';
+import { TrendingUp, TrendingDown, ShoppingCart, Package, Download, FileSpreadsheet, FileText } from 'lucide-react-native';
 import { CartesianChart, Line, PolarChart, Pie } from 'victory-native';
 import withObservables from '@nozbe/with-observables';
 import { Q } from '@nozbe/watermelondb';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { database } from '../../db';
 import TransactionModel from '../../db/models/Transaction';
 import ProductModel from '../../db/models/Product';
 import BottomNav from '../../components/BottomNav';
+import { useRole } from '../../hooks/useRole';
+import { Ionicons } from '@expo/vector-icons';
+import { calculateTotalProfit } from '../../utils/inventory';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -30,30 +35,174 @@ interface ReportsScreenProps {
 }
 
 function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsScreenProps) {
+  const { isOwner } = useRole();
+
+  // Staff cannot access reports — financial data is owner-only
+  if (!isOwner) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#F8FAFC] items-center justify-center px-8">
+        <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-6">
+          <Ionicons name="lock-closed" size={36} color="#cbd5e1" />
+        </View>
+        <Text className="text-dark font-poppins text-xl text-center mb-2">Owner Access Only</Text>
+        <Text className="text-gray-400 font-inter text-sm text-center leading-5">
+          Reports contain sensitive financial data.{"\n"}Contact your business owner for access.
+        </Text>
+        <BottomNav currentRoute="/reports" />
+      </SafeAreaView>
+    );
+  }
+
+  const exportStockToCSV = async (productList: ProductModel[]) => {
+    try {
+      const escapeCSV = (val: any) => {
+        if (val === null || val === undefined) return '';
+        let str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          str = '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const headers = [
+        'Product Name',
+        'SKU',
+        'Barcode',
+        'Category',
+        'In Stock Quantity',
+        'Buying Price (BDT)',
+        'Selling Price (BDT)',
+        'Total Stock Value (BDT)',
+        'Supplier',
+        'Warehouse',
+        'Location',
+        'Low Stock Threshold',
+        'Business Name'
+      ];
+
+      const rows = productList.map(p => {
+        const stockValue = (p.quantity || 0) * (p.buying_price || 0);
+        return [
+          escapeCSV(p.name),
+          escapeCSV(p.sku),
+          escapeCSV(p.barcode),
+          escapeCSV(p.category),
+          p.quantity || 0,
+          p.buying_price || 0,
+          p.selling_price || 0,
+          stockValue,
+          escapeCSV(p.supplier),
+          escapeCSV(p.warehouse),
+          escapeCSV(p.location),
+          p.low_stock_threshold || 0,
+          escapeCSV(p.business_name)
+        ].join(',');
+      });
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const filename = `stock_report_${new Date().toISOString().slice(0, 10)}.csv`;
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Stock Report',
+          UTI: 'public.comma-separated-values-text'
+        });
+      } else {
+        Alert.alert('Error', 'Sharing is not available on this device');
+      }
+    } catch (error) {
+      console.error('Failed to export stock:', error);
+      Alert.alert('Error', 'Failed to generate report. Please try again.');
+    }
+  };
+
+  const exportTransactionsToCSV = async (transactionList: TransactionModel[]) => {
+    try {
+      const escapeCSV = (val: any) => {
+        if (val === null || val === undefined) return '';
+        let str = String(val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+          str = '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const headers = [
+        'Date & Time',
+        'Product Name',
+        'Transaction Type',
+        'Quantity',
+        'Performed By',
+        'Business Name',
+        'Note'
+      ];
+
+      const rows = transactionList.map(tx => {
+        const dateStr = tx.createdAt instanceof Date
+          ? tx.createdAt.toLocaleString()
+          : new Date(Number(tx.createdAt)).toLocaleString();
+
+        return [
+          escapeCSV(dateStr),
+          escapeCSV(tx.product_name),
+          escapeCSV(tx.type.toUpperCase()),
+          tx.quantity || 0,
+          escapeCSV(tx.by_user),
+          escapeCSV(tx.business_name),
+          escapeCSV(tx.note)
+        ].join(',');
+      });
+
+      const csvContent = [headers.join(','), ...rows].join('\n');
+      const filename = `transaction_history_${new Date().toISOString().slice(0, 10)}.csv`;
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Transactions Report',
+          UTI: 'public.comma-separated-values-text'
+        });
+      } else {
+        Alert.alert('Error', 'Sharing is not available on this device');
+      }
+    } catch (error) {
+      console.error('Failed to export transactions:', error);
+      Alert.alert('Error', 'Failed to generate report. Please try again.');
+    }
+  };
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
-    // We need selling_price & buying_price per product for accurate P&L
-    // Build a quick lookup map: productId → product model
-    const productMap = new Map<string, ProductModel>();
-    products.forEach(p => productMap.set(p.id, p));
+    // Map WatermelonDB models to plain data structures expected by utility functions
+    const formattedProducts = products.map(p => ({
+      id: p.id,
+      name: p.name,
+      buying_price: p.buying_price || 0,
+      selling_price: p.selling_price || 0,
+      quantity: p.quantity || 0,
+      low_stock_threshold: p.low_stock_threshold || 5,
+    }));
 
-    let totalRevenue = 0;
-    let totalCost = 0;
+    const formattedTx = soldTransactions.map(tx => ({
+      product_id: tx.product_id,
+      product_name: tx.product_name,
+      type: tx.type as 'added' | 'sold' | 'removed' | 'returned',
+      quantity: tx.quantity || 0,
+      createdAt: tx.createdAt instanceof Date ? tx.createdAt.getTime() : Number(tx.createdAt),
+    }));
 
-    soldTransactions.forEach(tx => {
-      const product = productMap.get(tx.product_id);
-      if (product) {
-        totalRevenue += product.selling_price * tx.quantity;
-        totalCost += product.buying_price * tx.quantity;
-      } else {
-        // Fallback: no price info — skip for P&L but count transactions
-      }
-    });
-
-    const totalProfit = totalRevenue - totalCost;
-
-    return { totalRevenue, totalCost, totalProfit };
+    return calculateTotalProfit(formattedTx, formattedProducts);
   }, [soldTransactions, products]);
 
   // ── Sales Chart (last 30 days, grouped by day) ────────────────────────────
@@ -188,6 +337,41 @@ function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsS
           </View>
         </ScrollView>
 
+        {/* ── Export Data Section ────────────────────────────────────────── */}
+        <View className="px-5 mb-6">
+          <View className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm shadow-gray-200/50">
+            <View className="flex-row items-center mb-4">
+              <View className="w-8 h-8 rounded-full bg-emerald-50 items-center justify-center mr-2">
+                <Download size={16} color="#10B981" />
+              </View>
+              <View>
+                <Text className="text-dark font-poppins text-lg">Export Reports</Text>
+                <Text className="text-gray-400 font-inter text-xs">Download spreadsheet-compatible CSV files</Text>
+              </View>
+            </View>
+
+            <View className="flex-row" style={{ gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => exportStockToCSV(products)}
+                className="flex-1 bg-emerald-50 border border-emerald-100 py-3.5 px-4 rounded-2xl flex-row items-center justify-center active:opacity-85"
+                style={{ gap: 8 }}
+              >
+                <FileSpreadsheet size={16} color="#10B981" />
+                <Text className="text-emerald-700 font-poppins text-sm font-semibold">Stock CSV</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => exportTransactionsToCSV(allTransactions)}
+                className="flex-1 bg-blue-50 border border-blue-100 py-3.5 px-4 rounded-2xl flex-row items-center justify-center active:opacity-85"
+                style={{ gap: 8 }}
+              >
+                <FileText size={16} color="#3B82F6" />
+                <Text className="text-blue-700 font-poppins text-sm font-semibold">History CSV</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* ── Sales Overview Chart ────────────────────────────────────────── */}
         <View className="px-5 mb-6">
           <View className="bg-white border border-gray-100 rounded-3xl p-5 shadow-sm shadow-gray-200/50">
@@ -219,21 +403,35 @@ function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsS
             <Text className="text-dark font-poppins text-lg mb-4">Transaction Breakdown</Text>
             <View className="flex-row flex-wrap">
               {[
-                { label: 'Stock Added',   count: breakdown.added,    color: '#10B981' },
-                { label: 'Stock Removed', count: breakdown.removed,  color: '#EF4444' },
-                { label: 'Sales',         count: breakdown.sold,     color: '#3B82F6' },
-                { label: 'Returns',       count: breakdown.returned, color: '#F59E0B' },
+                { label: 'Stock Added', count: breakdown.added, color: '#10B981' },
+                { label: 'Stock Removed', count: breakdown.removed, color: '#EF4444' },
+                { label: 'Sales', count: breakdown.sold, color: '#3B82F6' },
+                { label: 'Returns', count: breakdown.returned, color: '#F59E0B' },
               ].map((item) => (
                 <View
                   key={item.label}
-                  className="w-1/2 mb-4 pr-2"
+                  className="w-1/2 mb-3 pr-2"
                 >
-                  <View className="bg-gray-50 rounded-2xl p-3">
-                    <View className="w-7 h-7 rounded-full mb-2 items-center justify-center" style={{ backgroundColor: item.color + '22' }}>
-                      <View className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                  <View className="bg-gray-50 rounded-2xl p-3 flex-row items-center">
+                    <View
+                      className="w-8 h-8 rounded-full mr-2.5"
+                      style={{
+                        backgroundColor: item.color + '15',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <View
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ backgroundColor: item.color }}
+                      />
                     </View>
-                    <Text className="text-dark font-poppins text-xl">{item.count}</Text>
-                    <Text className="text-gray-400 font-inter text-xs">{item.label}</Text>
+                    <View className="flex-1">
+                      <Text className="text-dark font-poppins text-lg leading-tight">{item.count}</Text>
+                      <Text className="text-gray-400 font-inter text-[10px] leading-tight mt-0.5" numberOfLines={1}>
+                        {item.label}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               ))}
