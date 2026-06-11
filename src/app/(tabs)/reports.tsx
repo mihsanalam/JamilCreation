@@ -6,7 +6,7 @@ import { CartesianChart, Line, PolarChart, Pie } from 'victory-native';
 import withObservables from '@nozbe/with-observables';
 import { Q } from '@nozbe/watermelondb';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+// expo-sharing is loaded dynamically to prevent crash when native module isn't in dev client
 import { database } from '../../db';
 import TransactionModel from '../../db/models/Transaction';
 import ProductModel from '../../db/models/Product';
@@ -36,22 +36,6 @@ interface ReportsScreenProps {
 
 function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsScreenProps) {
   const { isOwner } = useRole();
-
-  // Staff cannot access reports — financial data is owner-only
-  if (!isOwner) {
-    return (
-      <SafeAreaView className="flex-1 bg-[#F8FAFC] items-center justify-center px-8">
-        <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-6">
-          <Ionicons name="lock-closed" size={36} color="#cbd5e1" />
-        </View>
-        <Text className="text-dark font-poppins text-xl text-center mb-2">Owner Access Only</Text>
-        <Text className="text-gray-400 font-inter text-sm text-center leading-5">
-          Reports contain sensitive financial data.{"\n"}Contact your business owner for access.
-        </Text>
-        <BottomNav currentRoute="/reports" />
-      </SafeAreaView>
-    );
-  }
 
   const exportStockToCSV = async (productList: ProductModel[]) => {
     try {
@@ -107,6 +91,7 @@ function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsS
         encoding: FileSystem.EncodingType.UTF8
       });
 
+      const Sharing = await import('expo-sharing');
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
           mimeType: 'text/csv',
@@ -167,6 +152,7 @@ function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsS
         encoding: FileSystem.EncodingType.UTF8
       });
 
+      const Sharing = await import('expo-sharing');
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
           mimeType: 'text/csv',
@@ -274,6 +260,21 @@ function ReportsScreen({ soldTransactions, allTransactions, products }: ReportsS
   // ─────────────────────────────────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────────────────────────────────
+  if (!isOwner) {
+    return (
+      <SafeAreaView className="flex-1 bg-[#F8FAFC] items-center justify-center px-8">
+        <View className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-6">
+          <Ionicons name="lock-closed" size={36} color="#cbd5e1" />
+        </View>
+        <Text className="text-dark font-poppins text-xl text-center mb-2">Owner Access Only</Text>
+        <Text className="text-gray-400 font-inter text-sm text-center leading-5">
+          Reports contain sensitive financial data.{"\n"}Contact your business owner for access.
+        </Text>
+        <BottomNav currentRoute="/reports" />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-[#F8FAFC]">
       <ScrollView className="flex-1 pt-4" showsVerticalScrollIndicator={false}>

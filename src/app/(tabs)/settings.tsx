@@ -20,11 +20,11 @@ import {
 } from 'lucide-react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import BottomNav from '../../components/BottomNav';
 import { supabase } from '../../services/supabase';
 import QRCode from 'react-native-qrcode-svg';
-import { Modal, TextInput, ActivityIndicator } from 'react-native';
+import { Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { decode } from 'base64-arraybuffer';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -38,6 +38,52 @@ export default function SettingsScreen() {
   
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+
+  // Edit Profile Modal states
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [editFullName, setEditFullName] = useState('');
+  const [editBusinessName, setEditBusinessName] = useState('');
+  const [editRole, setEditRole] = useState<'owner' | 'staff'>('staff');
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Team members management states
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [loadingTeam, setLoadingTeam] = useState(false);
+  const [addMemberModalVisible, setAddMemberModalVisible] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'owner' | 'staff'>('staff');
+  const [savingMember, setSavingMember] = useState(false);
+
+  const openEditProfile = () => {
+    setEditFullName(fullName);
+    setEditBusinessName(businessName);
+    setEditRole(role);
+    setProfileModalVisible(true);
+  };
+
+  const handleUpdateProfile = async () => {
+    if (!editFullName.trim() || !editBusinessName.trim()) {
+      Alert.alert('Validation Error', 'Full Name and Business Name cannot be empty.');
+      return;
+    }
+    try {
+      setSavingProfile(true);
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          full_name: editFullName.trim(),
+          business_name: editBusinessName.trim(),
+          role: editRole
+        }
+      });
+      if (error) throw error;
+      Alert.alert('Success', 'Profile updated successfully!');
+      setProfileModalVisible(false);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update profile.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const handleSync = async () => {
     try {
@@ -85,11 +131,107 @@ export default function SettingsScreen() {
   const email = user?.email || 'No email attached';
   const avatarUrl = profileImage || user?.user_metadata?.avatar_url || 'https://ui-avatars.com/api/?name=' + fullName;
 
+  const fetchTeamMembers = async () => {
+    if (!businessName) return;
+    try {
+      setLoadingTeam(true);
+      const { data, error } = await supabase
+        .from('business_members')
+        .select('*')
+        .eq('business_name', businessName)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setTeamMembers(data || []);
+    } catch (e: any) {
+      console.error('Error fetching team:', e);
+    } finally {
+      setLoadingTeam(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOwner && businessName) {
+      fetchTeamMembers();
+    }
+  }, [isOwner, businessName]);
+
+  const handleAddMember = async () => {
+    if (!newMemberEmail.trim()) {
+      Alert.alert('Validation Error', 'Email cannot be empty.');
+      return;
+    }
+    try {
+      setSavingMember(true);
+      const { error } = await supabase
+        .from('business_members')
+        .insert({
+          business_name: businessName,
+          email: newMemberEmail.trim().toLowerCase(),
+          role: newMemberRole
+        });
+      if (error) throw error;
+      Alert.alert('Success', 'Team member added successfully!');
+      setAddMemberModalVisible(false);
+      setNewMemberEmail('');
+      fetchTeamMembers();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to add member.');
+    } finally {
+      setSavingMember(false);
+    }
+  };
+
+  const handleUpdateMemberRole = async (memberId: string, currentRole: string) => {
+    const nextRole = currentRole === 'owner' ? 'staff' : 'owner';
+    try {
+      const { error } = await supabase
+        .from('business_members')
+        .update({ role: nextRole })
+        .eq('id', memberId);
+      if (error) throw error;
+      Alert.alert('Success', 'Member role updated successfully!');
+      fetchTeamMembers();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to update member role.');
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberEmail: string) => {
+    if (memberEmail.toLowerCase() === email.toLowerCase()) {
+      Alert.alert('Action Denied', 'You cannot remove yourself from the business.');
+      return;
+    }
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${memberEmail} from this business?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('business_members')
+                .delete()
+                .eq('id', memberId);
+              if (error) throw error;
+              Alert.alert('Success', 'Member removed successfully!');
+              fetchTeamMembers();
+            } catch (e: any) {
+              Alert.alert('Error', e.message || 'Failed to remove member.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const pickImage = async () => {
     try {
       let result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: Platform.OS === 'ios',
         aspect: [1, 1],
         quality: 0.5,
         base64: true, // Need base64 to fix React Native FormData bug
@@ -242,7 +384,7 @@ export default function SettingsScreen() {
         <View className="mb-6">
           <Text className="text-dark font-poppins text-sm mb-3">Business Settings</Text>
           <View className="bg-white border border-gray-100 rounded-3xl px-4 py-1 shadow-sm shadow-gray-200/50">
-            {renderSettingItem(<User size={20} color="#64748b" />, "Business Profile", undefined, () => Alert.alert("Business Profile", `Business: ${businessName}\nOwner: ${fullName}`))}
+            {renderSettingItem(<User size={20} color="#64748b" />, "Business Profile", undefined, openEditProfile)}
             {renderSettingItem(<Sliders size={20} color="#64748b" />, "Preferences", undefined, () => Alert.alert("Preferences", "Preferences settings are currently configured to default system standards."))}
             {renderSettingItem(
               <DollarSign size={20} color="#64748b" />, 
@@ -252,6 +394,50 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+
+        {/* Team Management — Owner Only */}
+        {isOwner && (
+          <View className="mb-6">
+            <View className="flex-row justify-between items-center mb-3">
+              <Text className="text-dark font-poppins text-sm">Team Members</Text>
+              <TouchableOpacity onPress={() => setAddMemberModalVisible(true)}>
+                <Text className="text-primary font-inter text-xs font-semibold">+ Add Member</Text>
+              </TouchableOpacity>
+            </View>
+            <View className="bg-white border border-gray-100 rounded-3xl p-4 shadow-sm shadow-gray-200/50">
+              {loadingTeam ? (
+                <ActivityIndicator size="small" color="#0F172A" className="py-4" />
+              ) : teamMembers.length === 0 ? (
+                <Text className="text-gray-400 font-inter text-xs text-center py-4">No team members registered yet.</Text>
+              ) : (
+                teamMembers.map((member) => (
+                  <View key={member.id} className="flex-row justify-between items-center py-3 border-b border-gray-50 last:border-0">
+                    <View className="flex-1 mr-2">
+                      <Text className="text-dark font-inter text-sm" numberOfLines={1}>{member.email}</Text>
+                      <Text className="text-gray-400 font-inter text-[10px] capitalize">{member.role}</Text>
+                    </View>
+                    {member.email.toLowerCase() !== email.toLowerCase() && (
+                      <View className="flex-row items-center">
+                        <TouchableOpacity 
+                          onPress={() => handleUpdateMemberRole(member.id, member.role)}
+                          className="mr-3 bg-gray-50 border border-gray-200 px-2.5 py-1 rounded-lg"
+                        >
+                          <Text className="text-gray-500 font-inter text-[10px]">Change Role</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity 
+                          onPress={() => handleRemoveMember(member.id, member.email)}
+                          className="bg-red-50 border border-red-100 px-2.5 py-1 rounded-lg"
+                        >
+                          <Text className="text-red-500 font-inter text-[10px]">Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          </View>
+        )}
 
         {/* Account & Security — Owner Only */}
         {isOwner && (
@@ -343,6 +529,162 @@ export default function SettingsScreen() {
             <Text className="text-gray-500 font-inter text-base">Cancel</Text>
           </TouchableOpacity>
         </SafeAreaView>
+      </Modal>
+
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={profileModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setProfileModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          className="flex-1 bg-white"
+        >
+          <SafeAreaView className="flex-1 px-6 py-8">
+            <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+              <Text className="text-3xl font-poppins text-dark text-center mb-2">Edit Profile</Text>
+              <Text className="text-gray-500 font-inter text-center mb-8">Update your personal details and business settings below.</Text>
+              
+              {/* Full Name */}
+              <Text className="text-dark font-inter text-sm mb-2">Full Name</Text>
+              <View className="border border-gray-300 rounded-xl px-4 py-3 mb-4 bg-gray-50">
+                <TextInput 
+                  className="font-inter text-dark text-base" 
+                  placeholder="Full Name" 
+                  placeholderTextColor="#9ca3af"
+                  value={editFullName}
+                  onChangeText={setEditFullName}
+                />
+              </View>
+
+              {/* Business Name */}
+              <Text className="text-dark font-inter text-sm mb-2">Business Name</Text>
+              <View className="border border-gray-300 rounded-xl px-4 py-3 mb-4 bg-gray-50">
+                <TextInput 
+                  className="font-inter text-dark text-base" 
+                  placeholder="Business Name" 
+                  placeholderTextColor="#9ca3af"
+                  value={editBusinessName}
+                  onChangeText={setEditBusinessName}
+                />
+              </View>
+
+              {/* Role Selection */}
+              <Text className="text-dark font-inter text-sm mb-2">Your Role</Text>
+              {isOwner ? (
+                <>
+                  <View className="flex-row mb-6">
+                    <TouchableOpacity 
+                      onPress={() => setEditRole('owner')}
+                      className={`flex-1 py-3.5 rounded-xl border mr-2 items-center justify-center ${editRole === 'owner' ? 'bg-purple-50 border-purple-500' : 'bg-gray-50 border-gray-200'}`}
+                    >
+                      <Text className={`font-poppins text-sm ${editRole === 'owner' ? 'text-purple-600 font-bold' : 'text-gray-500'}`}>👑 Owner</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      onPress={() => setEditRole('staff')}
+                      className={`flex-1 py-3.5 rounded-xl border ml-2 items-center justify-center ${editRole === 'staff' ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-200'}`}
+                    >
+                      <Text className={`font-poppins text-sm ${editRole === 'staff' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>👤 Staff</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text className="text-xs text-gray-400 font-inter mb-8 text-center">
+                    Note: Updating your role to Owner grants full access to backups, security options, and financial reports.
+                  </Text>
+                </>
+              ) : (
+                <View className="border border-gray-200 rounded-xl px-4 py-3.5 mb-6 bg-gray-50 flex-row items-center">
+                  <Text className="font-poppins text-gray-500 text-sm">👤 Staff (Role cannot be changed by staff)</Text>
+                </View>
+              )}
+
+              <TouchableOpacity 
+                className="bg-[#0F172A] rounded-xl py-4 items-center shadow-sm shadow-[#0F172A]/30"
+                activeOpacity={0.8}
+                onPress={handleUpdateProfile}
+                disabled={savingProfile}
+              >
+                <Text className="text-white font-poppins text-lg">
+                  {savingProfile ? 'Saving Changes...' : 'Save Profile'}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => setProfileModalVisible(false)} className="mt-6 items-center">
+                <Text className="text-gray-500 font-inter text-base">Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Add Member Modal */}
+      <Modal
+        visible={addMemberModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setAddMemberModalVisible(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+          className="flex-1 bg-white"
+        >
+          <SafeAreaView className="flex-1 px-6 py-8">
+            <ScrollView showsVerticalScrollIndicator={false} className="flex-1">
+              <Text className="text-3xl font-poppins text-dark text-center mb-2">Add Team Member</Text>
+              <Text className="text-gray-500 font-inter text-center mb-8">Authorize a staff member or co-owner to access your business data.</Text>
+              
+              {/* Member Email */}
+              <Text className="text-dark font-inter text-sm mb-2">Member Email</Text>
+              <View className="border border-gray-300 rounded-xl px-4 py-3 mb-6 bg-gray-50">
+                <TextInput 
+                  className="font-inter text-dark text-base" 
+                  placeholder="employee@jamilcreation.com" 
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={newMemberEmail}
+                  onChangeText={setNewMemberEmail}
+                />
+              </View>
+
+              {/* Role Selection */}
+              <Text className="text-dark font-inter text-sm mb-2">Assigned Role</Text>
+              <View className="flex-row mb-6">
+                <TouchableOpacity 
+                  onPress={() => setNewMemberRole('owner')}
+                  className={`flex-1 py-3.5 rounded-xl border mr-2 items-center justify-center ${newMemberRole === 'owner' ? 'bg-purple-50 border-purple-500' : 'bg-gray-50 border-gray-200'}`}
+                >
+                  <Text className={`font-poppins text-sm ${newMemberRole === 'owner' ? 'text-purple-600 font-bold' : 'text-gray-500'}`}>👑 Owner</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => setNewMemberRole('staff')}
+                  className={`flex-1 py-3.5 rounded-xl border ml-2 items-center justify-center ${newMemberRole === 'staff' ? 'bg-blue-50 border-blue-500' : 'bg-gray-50 border-gray-200'}`}
+                >
+                  <Text className={`font-poppins text-sm ${newMemberRole === 'staff' ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>👤 Staff</Text>
+                </TouchableOpacity>
+              </View>
+              <Text className="text-xs text-gray-400 font-inter mb-8 text-center">
+                Owner role grants privileges (sync, reports, delete records). Staff role limits access to catalog and entry tasks.
+              </Text>
+
+              <TouchableOpacity 
+                className="bg-[#0F172A] rounded-xl py-4 items-center shadow-sm shadow-[#0F172A]/30"
+                activeOpacity={0.8}
+                onPress={handleAddMember}
+                disabled={savingMember}
+              >
+                <Text className="text-white font-poppins text-lg">
+                  {savingMember ? 'Adding Member...' : 'Add Member'}
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={() => setAddMemberModalVisible(false)} className="mt-6 items-center">
+                <Text className="text-gray-500 font-inter text-base">Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
 
     </SafeAreaView>

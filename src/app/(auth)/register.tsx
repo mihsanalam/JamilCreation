@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Image, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
@@ -17,7 +17,9 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [logoUri, setLogoUri] = useState<string | null>(null);
+  const [logoBase64, setLogoBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
 
   const [fullName, setFullName] = useState('');
   const [businessName, setBusinessName] = useState('');
@@ -54,14 +56,13 @@ export default function SignupScreen() {
             business_name: businessName,
             phone: phone,
             role: 'owner',
+            avatar_url: logoBase64 ? `data:image/jpeg;base64,${logoBase64}` : null,
           }
         }
       });
 
       if (error) throw error;
-      
-      alert('Success! Check your email to verify your account.');
-      router.replace('/login' as any);
+      setSuccessModalVisible(true);
       
     } catch (e: any) {
       setErrors({ general: e.message || 'Signup failed. Please try again.' });
@@ -111,7 +112,7 @@ export default function SignupScreen() {
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      allowsEditing: Platform.OS === 'ios',
       aspect: [1, 1],
       quality: 0.8,
     });
@@ -120,9 +121,10 @@ export default function SignupScreen() {
       const compressed = await ImageManipulator.manipulateAsync(
         result.assets[0].uri,
         [{ resize: { width: 400 } }],
-        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
+        { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
       setLogoUri(compressed.uri);
+      setLogoBase64(compressed.base64 || null);
     }
   };
 
@@ -312,6 +314,45 @@ export default function SignupScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Verify Email Success Modal */}
+      <Modal
+        visible={successModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => {
+          setSuccessModalVisible(false);
+          router.replace('/login' as any);
+        }}
+      >
+        <View className="flex-1 bg-black/60 items-center justify-center px-6">
+          <View className="bg-white rounded-[32px] p-6 w-full max-w-sm items-center shadow-2xl border border-gray-100">
+            {/* Icon Wrapper */}
+            <View className="w-20 h-20 bg-purple-50 rounded-full items-center justify-center mb-6">
+              <Ionicons name="mail-unread-outline" size={42} color="#8B5CF6" />
+            </View>
+
+            {/* Typography */}
+            <Text className="text-dark font-poppins text-2xl text-center mb-3">Verify Your Email</Text>
+            <Text className="text-gray-500 font-inter text-sm text-center leading-6 mb-8 px-2">
+              We've sent a verification link to <Text className="font-semibold text-dark">{email.toLowerCase()}</Text>.{"\n"}
+              Please check your inbox (and spam/junk folder) to verify and activate your account.
+            </Text>
+
+            {/* Action Buttons */}
+            <TouchableOpacity
+              onPress={() => {
+                setSuccessModalVisible(false);
+                router.replace('/login' as any);
+              }}
+              className="w-full bg-[#0F172A] rounded-2xl py-4 items-center shadow-md shadow-[#0F172A]/20"
+              activeOpacity={0.8}
+            >
+              <Text className="text-white font-poppins text-base font-semibold">Back to Login</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

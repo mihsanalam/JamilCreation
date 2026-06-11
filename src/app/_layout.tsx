@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth';
 import { sync } from '../db/sync';
 import { registerForPushNotifications } from '../services/notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { supabase } from '../services/supabase';
 
 // Keep splash visible until fonts AND auth are ready
 SplashScreen.preventAutoHideAsync();
@@ -48,6 +49,90 @@ export default function RootLayout() {
       router.replace('/(tabs)' as any);
     }
   }, [session, loading, fontsLoaded, segments]);
+
+  // ── Sync user role and business registration ──────────────────────────────
+  useEffect(() => {
+    if (loading || !session) return;
+
+    const verifyRole = async () => {
+      try {
+        const user = session.user;
+        const email = user.email;
+        const businessName = user.user_metadata?.business_name;
+        
+        if (!email || !businessName) return;
+
+        // Query the database to see if this member exists
+        const { data: member, error } = await supabase
+          .from('business_members')
+          .select('role')
+          .eq('business_name', businessName)
+          .eq('email', email.toLowerCase())
+          .maybeSingle();
+
+        if (error) throw error;
+
+        let finalRole = user.user_metadata?.role;
+
+        if (member) {
+          // Record exists! Use the database role
+          finalRole = member.role;
+        } else {
+          // Record does not exist! Check if any members exist for this business name
+          const { data: existing, error: existError } = await supabase
+            .from('business_members')
+            .select('id')
+            .eq('business_name', businessName)
+            .limit(1);
+
+          if (existError) throw existError;
+
+          const isNewBusiness = !existing || existing.length === 0;
+          finalRole = isNewBusiness ? 'owner' : 'staff';
+
+          // Create the record in the database
+          const { error: insertError } = await supabase
+            .from('business_members')
+            .insert({
+              business_name: businessName,
+              email: email.toLowerCase(),
+              role: finalRole
+            });
+
+          if (insertError) {
+            if (insertError.code === '23505') {
+              // Duplicate key value — another parallel execution registered it. Re-fetch to get correct role.
+              const { data: refetchedMember } = await supabase
+                .from('business_members')
+                .select('role')
+                .eq('business_name', businessName)
+                .eq('email', email.toLowerCase())
+                .maybeSingle();
+              if (refetchedMember) {
+                finalRole = refetchedMember.role;
+              }
+            } else {
+              console.error('Failed to register member in DB:', insertError);
+            }
+          }
+        }
+
+        // If metadata is different from database, update it
+        if (user.user_metadata?.role !== finalRole) {
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: { role: finalRole }
+          });
+          if (updateError) {
+            console.error('Failed to sync metadata role:', updateError);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to verify user role against database:', err);
+      }
+    };
+
+    verifyRole();
+  }, [session, loading]);
 
   // ── Background sync ───────────────────────────────────────────────────────
   useEffect(() => {

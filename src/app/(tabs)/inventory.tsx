@@ -10,7 +10,7 @@ import { database } from '../../db';
 import ProductModel from '../../db/models/Product';
 import { Product } from '../../types';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
+// expo-sharing is loaded dynamically to prevent crash when native module isn't in dev client
 import { useRole } from '../../hooks/useRole';
 
 // Individual Product Item Component
@@ -238,6 +238,7 @@ export default function InventoryScreen() {
         encoding: FileSystem.EncodingType.UTF8
       });
 
+      const Sharing = await import('expo-sharing');
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(fileUri, {
           mimeType: 'text/csv',

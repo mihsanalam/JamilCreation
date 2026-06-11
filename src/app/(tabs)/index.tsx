@@ -2,10 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, Image, Modal, FlatList, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import BottomNav from '../../components/BottomNav';
 import { useAuth } from '../../hooks/useAuth';
 import { useRole } from '../../hooks/useRole';
+import { supabase } from '../../services/supabase';
 import withObservables from '@nozbe/with-observables';
 import { database } from '../../db';
 import { Q } from '@nozbe/watermelondb';
@@ -32,8 +33,25 @@ function HomeScreen({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
 
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      let isMounted = true;
+      supabase.auth.getUser().then(({ data: { user: freshUser } }) => {
+        if (isMounted && freshUser) {
+          const freshAvatar = freshUser.user_metadata?.avatar_url;
+          setAvatar(freshAvatar || null);
+        }
+      }).catch(err => console.warn('Failed to refresh user avatar on focus', err));
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
   const firstName = user?.user_metadata?.full_name?.split(' ')[0] || 'Guest';
-  const avatarUrl = user?.user_metadata?.avatar_url || 'https://ui-avatars.com/api/?name=' + firstName;
+  const avatarUrl = avatar || user?.user_metadata?.avatar_url || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(firstName);
 
   const productsCount = products.length;
   const lowStockCount = lowStockProducts.length;

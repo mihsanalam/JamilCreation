@@ -8,6 +8,8 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -149,6 +151,10 @@ export default function RecordSaleScreen() {
         </View>
       </View>
 
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        className="flex-1"
+      >
       <FlatList
         data={[]}
         renderItem={null}
@@ -284,6 +290,7 @@ export default function RecordSaleScreen() {
           </View>
         }
       />
+      </KeyboardAvoidingView>
 
       {/* ── Product Picker Modal ─────────────────────────────────────────── */}
       <Modal

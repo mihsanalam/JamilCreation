@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform, Image, Modal, FlatList } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform, Image, Modal, FlatList, KeyboardAvoidingView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -69,7 +69,7 @@ export default function AddProductScreen() {
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      allowsEditing: Platform.OS === 'ios',
       aspect: [4, 3],
       quality: 0.8, // pre-filter
     });
@@ -223,7 +223,11 @@ export default function AddProductScreen() {
         <Text className="text-dark font-poppins text-xl">{id ? 'Edit Product' : 'Add New Product'}</Text>
       </View>
 
-      <ScrollView className="flex-1 px-5 pt-5" showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        className="flex-1"
+      >
+        <ScrollView className="flex-1 px-5 pt-5" showsVerticalScrollIndicator={false}>
 
         {/* Product Image */}
         <Text className="text-dark font-inter text-sm mb-3">Product Image</Text>
@@ -387,6 +391,7 @@ export default function AddProductScreen() {
         </TouchableOpacity>
 
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Supplier Modal */}
       <Modal
